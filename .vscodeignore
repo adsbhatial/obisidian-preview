@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+.vscode-test.*
+test/**
+node_modules/**
+obsidian-preview.code-workspace
+package-lock.json
+.gitignore
+*.vsix
+dist/**

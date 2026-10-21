@@ -1,0 +1,29 @@
+{
+   "name": "obsidian-preview",
+   "displayName": "Obsidian Preview",
+   "description": "Renders Obsidian image embeds, ==highlights== and > [!callouts] in the built-in Markdown preview.",
+   "version": "0.2.0",
+   "publisher": "local",
+   "license": "Apache-2.0",
+   "engines": { "vscode": "^1.80.0" },
+   "categories": ["Other"],
+   "activationEvents": ["onLanguage:markdown"],
+   "main": "./extension.js",
+   "contributes": {
+      "markdown.markdownItPlugins": true,
+      "markdown.previewStyles": ["./preview.css"]
+   },
+   "scripts": {
+      "test": "vscode-test",
+      "package": "vsce package --out dist/ --allow-missing-repository --baseContentUrl https://localhost/ --baseImagesUrl https://localhost/"
+   },
+   "devDependencies": {
+      "@types/mocha": "^10.0.10",
+      "@types/node": "20.x",
+      "@types/vscode": "^1.80.0",
+      "@vscode/test-cli": "^0.0.10",
+      "@vscode/test-electron": "^2.4.1",
+      "@vscode/vsce": "^3.6.0"
+   }
+}
+

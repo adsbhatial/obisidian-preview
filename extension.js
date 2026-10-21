@@ -1,0 +1,277 @@
+const vscode = require('vscode');
+const fs = require('fs');
+const path = require('path');
+
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp']);
+const INDEXED_EXT = new Set([...IMAGE_EXT, '.pdf']);
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.obsidian', '.vscode']);
+const REINDEX_MIN_MS = 2000;
+
+// root folder -> { map: Map<lowercase filename, full path>, builtAt: number }
+const indexes = new Map();
+
+function buildIndex(root) {
+   const map = new Map();
+   const walk = (dir) => {
+      let entries;
+      try {
+         entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch (e) {
+         return;
+      }
+      for (const ent of entries) {
+         const full = path.join(dir, ent.name);
+         if (ent.isDirectory()) {
+            if (!SKIP_DIRS.has(ent.name)) walk(full);
+         } else if (INDEXED_EXT.has(path.extname(ent.name).toLowerCase())) {
+            const key = ent.name.toLowerCase();
+            if (!map.has(key)) map.set(key, full);
+         }
+      }
+   };
+   walk(root);
+   const idx = { map, builtAt: Date.now() };
+   indexes.set(root, idx);
+   return idx;
+}
+
+function findImage(root, name) {
+   const key = name.toLowerCase();
+   const idx = indexes.get(root) || buildIndex(root);
+   let hit = idx.map.get(key);
+   if (!hit && Date.now() - idx.builtAt > REINDEX_MIN_MS) {
+      hit = buildIndex(root).map.get(key);
+   }
+   return hit;
+}
+
+let lastMarkdownPath = null;
+let log = null;
+function logLine(msg) {
+   if (!log) log = vscode.window.createOutputChannel('Obsidian Preview');
+   log.appendLine(msg);
+}
+
+function docPathFromPreviewTab() {
+   const found = [];
+   const direct = [];
+   for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+         const viewType = tab.input && tab.input.viewType;
+         // Preview opened as the main editor: a custom editor tab that carries the file uri.
+         if (viewType === 'vscode.markdown.preview.editor' && tab.input.uri && tab.input.uri.scheme === 'file') {
+            direct.push({ fsPath: tab.input.uri.fsPath, active: group.isActive && tab.isActive });
+         }
+         if (viewType && String(viewType).includes('markdown.preview') && /^Preview /.test(tab.label)) {
+            found.push({ name: tab.label.slice('Preview '.length), active: group.isActive && tab.isActive });
+         }
+      }
+   }
+   direct.sort((a, b) => Number(b.active) - Number(a.active));
+   if (direct.length) return direct[0].fsPath;
+   found.sort((a, b) => Number(b.active) - Number(a.active));
+   for (const f of found) {
+      const doc = vscode.workspace.textDocuments.find(
+         (d) => d.languageId === 'markdown' && d.uri.scheme === 'file' && path.basename(d.uri.fsPath) === f.name
+      );
+      if (doc) return doc.uri.fsPath;
+   }
+   return null;
+}
+
+// The preview hands over env.currentDocument as a vscode-uri object, not necessarily a
+// vscode.Uri, so derive the file path ourselves instead of relying on getWorkspaceFolder.
+function rootFor(env) {
+   const folders = vscode.workspace.workspaceFolders || [];
+   const doc = env && env.currentDocument;
+   let docPath = null;
+   if (doc) {
+      try {
+         docPath = doc.fsPath || (doc.path && vscode.Uri.from({ scheme: doc.scheme || 'file', path: doc.path }).fsPath);
+         if (!docPath) docPath = vscode.Uri.parse(String(doc)).fsPath;
+      } catch (e) {
+         docPath = null;
+      }
+   }
+   if (!docPath) {
+      // env gave no usable document: match the "Preview <file>" tab title to an open note,
+      // then any visible note, else assume the note last edited.
+      const visible = vscode.window.visibleTextEditors.find(
+         (e) => e.document.languageId === 'markdown' && e.document.uri.scheme === 'file'
+      );
+      docPath = docPathFromPreviewTab() || (visible && visible.document.uri.fsPath) || lastMarkdownPath;
+   }
+   if (docPath) {
+      const lower = docPath.toLowerCase();
+      const folder = folders.find((f) => lower.startsWith(f.uri.fsPath.toLowerCase() + path.sep));
+      return {
+         root: folder ? folder.uri.fsPath : path.dirname(docPath),
+         docDir: path.dirname(docPath),
+      };
+   }
+   logLine('could not determine the note being previewed; resolving images from the workspace root');
+   return folders[0] ? { root: folders[0].uri.fsPath, docDir: folders[0].uri.fsPath } : null;
+}
+
+// Relative to the note, so the built-in preview turns it into a webview URI itself.
+function toSrc(docDir, target) {
+   return path
+      .relative(docDir, target)
+      .split(path.sep)
+      .map(encodeURIComponent)
+      .join('/');
+}
+
+// ![[image.png]]  ![[image.png|400]]  ![[image.png|400x300]]  ![[image.png|alt text]]
+function embedRule(state, silent) {
+   const src = state.src;
+   const start = state.pos;
+   if (!src.startsWith('![[', start)) return false;
+   const end = src.indexOf(']]', start + 3);
+   if (end < 0 || end >= state.posMax) return false;
+
+   const inner = src.slice(start + 3, end);
+   if (inner.includes('\n')) return false;
+   const parts = inner.split('|');
+   const name = parts[0].split('#')[0].trim();
+   const opt = (parts[1] || '').trim();
+   if (!IMAGE_EXT.has(path.extname(name).toLowerCase())) return false;
+
+   const ctx = rootFor(state.env);
+   if (!ctx) return false;
+   const target = findImage(ctx.root, path.basename(name));
+   if (!target) return false;
+
+   if (!silent) {
+      const sizeMatch = /^(\d+)(?:x(\d+))?$/.exec(opt);
+      const alt = sizeMatch || !opt ? path.basename(name) : opt;
+      const token = state.push('image', 'img', 0);
+      token.attrs = [['src', state.md.normalizeLink(toSrc(ctx.docDir, target))], ['alt', alt]];
+      if (sizeMatch) {
+         token.attrs.push(['width', sizeMatch[1]]);
+         if (sizeMatch[2]) token.attrs.push(['height', sizeMatch[2]]);
+      }
+      token.content = alt;
+      const text = new state.Token('text', '', 0);
+      text.content = alt;
+      token.children = [text];
+   }
+   state.pos = end + 2;
+   return true;
+}
+
+// ==highlight==
+function highlightRule(state, silent) {
+   const src = state.src;
+   const start = state.pos;
+   if (!src.startsWith('==', start)) return false;
+   const end = src.indexOf('==', start + 2);
+   if (end < 0 || end >= state.posMax || end === start + 2) return false;
+   if (silent) {
+      state.pos = end + 2;
+      return true;
+   }
+   state.push('mark_open', 'mark', 1);
+   const oldMax = state.posMax;
+   state.pos = start + 2;
+   state.posMax = end;
+   state.md.inline.tokenize(state);
+   state.pos = end + 2;
+   state.posMax = oldMax;
+   state.push('mark_close', 'mark', -1);
+   return true;
+}
+
+// > [!type] Title   (first line of a blockquote)
+function calloutRule(state) {
+   const tokens = state.tokens;
+   const esc = state.md.utils.escapeHtml;
+   for (let i = 0; i < tokens.length; i++) {
+      const open = tokens[i];
+      if (open.type !== 'blockquote_open') continue;
+      const para = tokens[i + 1];
+      const inline = tokens[i + 2];
+      if (!para || para.type !== 'paragraph_open' || !inline || inline.type !== 'inline') continue;
+      const m = /^\[!([\w-]+)\][+-]?[ \t]*([^\n]*)/.exec(inline.content);
+      if (!m) continue;
+
+      const type = m[1].toLowerCase();
+      const title = m[2].trim() || type.charAt(0).toUpperCase() + type.slice(1);
+      open.attrJoin('class', 'callout callout-' + type);
+
+      const br = inline.children.findIndex((c) => c.type === 'softbreak');
+      let bodyHtml = '';
+      if (type === 'video') {
+         // The preview can't host the player (iframes are blocked), so show a card that
+         // links out to the video URL instead.
+         const url = /https?:\/\/[^\s<>"']+/.exec(br < 0 ? '' : inline.content.slice(inline.content.indexOf('\n') + 1));
+         if (url) {
+            bodyHtml = '<div class="video-link"><a href="' + esc(url[0]) + '">' + esc(url[0]) + '</a></div>\n';
+         }
+         tokens.splice(i + 1, 3); // drop the paragraph; the card replaces it
+      } else if (br < 0) {
+         tokens.splice(i + 1, 3); // paragraph held only the marker line
+      } else {
+         inline.children = inline.children.slice(br + 1);
+         inline.content = inline.content.slice(inline.content.indexOf('\n') + 1);
+      }
+      const titleTok = new state.Token('html_block', '', 0);
+      titleTok.content =
+         '<div class="callout-title">' + (type === 'video' ? '&#9654; ' : '') + esc(title) + '</div>\n' + bodyHtml;
+      tokens.splice(i + 1, 0, titleTok);
+   }
+}
+
+// ![](Name.png) / ![alt](Pasted%20image.png): bare filenames the vault resolves by name.
+// Rewritten in the raw text before parsing, because the preview converts image paths to
+// webview URIs while parsing. Only touched when the file doesn't exist next to the note.
+const PDF_EMBED = /!\[\[([^\]|#]+\.pdf)(?:#([^\]|]*))?(?:\|[^\]]*)?\]\]/gi;
+const IMAGE_LINK =/(!\[[^\]]*\]\()(<[^>]+>|[^)\s]+)((?:\s+"[^"]*")?\))/g;
+
+function imageLinkRule(state) {
+   const ctx = rootFor(state.env);
+   if (!ctx) return;
+   // ![[file.pdf]] / ![[file.pdf#page=3&height=500]]: the preview can't show a PDF inline,
+   // so turn it into a plain link (handled by the preview's normal link logic).
+   state.src = state.src.replace(PDF_EMBED, (all, name, frag) => {
+      const target = findImage(ctx.root, path.basename(name.trim()));
+      if (!target) return all;
+      const page = /(?:^|&)page=(\d+)/.exec(frag || '');
+      const label = '\u{1F4C4} ' + path.basename(target) + (page ? ' (page ' + page[1] + ')' : '');
+      return '[' + label.replace(/[[\]]/g, '\\$&') + '](' + toSrc(ctx.docDir, target) + ')';
+   });
+   state.src = state.src.replace(IMAGE_LINK, (all, pre, link, post) => {
+      const raw = link.replace(/^<|>$/g, '');
+      if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('/')) return all;
+      let decoded = raw;
+      try {
+         decoded = decodeURIComponent(raw);
+      } catch (e) {
+         // keep raw
+      }
+      if (fs.existsSync(path.join(ctx.docDir, decoded))) return all;
+      const target = findImage(ctx.root, path.basename(decoded));
+      return target ? pre + toSrc(ctx.docDir, target) + post : all;
+   });
+}
+
+function activate(context) {
+   const track = (editor) => {
+      if (editor && editor.document.languageId === 'markdown' && editor.document.uri.scheme === 'file') {
+         lastMarkdownPath = editor.document.uri.fsPath;
+      }
+   };
+   track(vscode.window.activeTextEditor);
+   context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(track));
+   return {
+      extendMarkdownIt(md) {
+         md.inline.ruler.before('image', 'obsidian_embed', embedRule);
+         md.inline.ruler.before('emphasis', 'obsidian_highlight', highlightRule);
+         md.core.ruler.after('inline', 'obsidian_callouts', calloutRule);
+         md.core.ruler.before('normalize', 'obsidian_image_links', imageLinkRule);
+         return md;
+      },
+   };
+}
+
+module.exports = { activate };

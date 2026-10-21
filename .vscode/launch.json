@@ -1,0 +1,22 @@
+{
+   "version": "0.2.0",
+   "configurations": [
+      {
+         "name": "Run Extension (test workspace)",
+         "type": "extensionHost",
+         "request": "launch",
+         "args": [
+            "--extensionDevelopmentPath=${workspaceFolder}",
+            "${workspaceFolder}/test/workspace"
+         ]
+      },
+      {
+         "name": "Run Extension (no folder)",
+         "type": "extensionHost",
+         "request": "launch",
+         "args": [
+            "--extensionDevelopmentPath=${workspaceFolder}"
+         ]
+      }
+   ]
+}

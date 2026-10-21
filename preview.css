@@ -1,0 +1,9 @@
+blockquote.callout-video { border-left-color: #8b5cf6; background: rgba(139,92,246,.12); }
+blockquote.callout .video-link { margin: 4px 0 8px; word-break: break-all; }
+mark { background: #ffe066; color: #000; padding: 0 2px; border-radius: 2px; }
+blockquote.callout { border-left: 4px solid #888; background: rgba(128,128,128,.12); padding: 4px 14px; margin: 12px 0; border-radius: 4px; }
+blockquote.callout .callout-title { font-weight: 700; margin: 4px 0; }
+blockquote.callout-note, blockquote.callout-info, blockquote.callout-todo, blockquote.callout-abstract, blockquote.callout-summary { border-left-color: #3b82f6; background: rgba(59,130,246,.12); }
+blockquote.callout-tip, blockquote.callout-success, blockquote.callout-check, blockquote.callout-done, blockquote.callout-hint { border-left-color: #22c55e; background: rgba(34,197,94,.12); }
+blockquote.callout-warning, blockquote.callout-caution, blockquote.callout-attention, blockquote.callout-question, blockquote.callout-help { border-left-color: #f59e0b; background: rgba(245,158,11,.14); }
+blockquote.callout-danger, blockquote.callout-error, blockquote.callout-failure, blockquote.callout-fail, blockquote.callout-bug, blockquote.callout-missing { border-left-color: #ef4444; background: rgba(239,68,68,.12); }
