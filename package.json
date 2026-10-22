@@ -2,7 +2,7 @@
    "name": "obsidian-preview",
    "displayName": "Obsidian Preview",
    "description": "Renders Obsidian image embeds, ==highlights== and > [!callouts] in the built-in Markdown preview.",
-   "version": "0.2.0",
+   "version": "0.2.1",
    "publisher": "adsbhatial",
    "license": "Apache-2.0",
    "engines": { "vscode": "^1.80.0" },
