@@ -12,7 +12,7 @@
    "main": "./extension.js",
    "repository": {
       "type": "git",
-      "url": "https://github.com/adsbhatial/obisidian-preview.git"
+      "url": "https://github.com/adsbhatial/obisidian-preview-native.git"
     },
    "contributes": {
       "markdown.markdownItPlugins": true,
