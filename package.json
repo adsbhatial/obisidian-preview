@@ -9,13 +9,17 @@
    "categories": ["Other"],
    "activationEvents": ["onLanguage:markdown"],
    "main": "./extension.js",
+   "repository": {
+      "type": "git",
+      "url": "https://github.com/adsbhatial/obisidian-preview.git"
+    },
    "contributes": {
       "markdown.markdownItPlugins": true,
       "markdown.previewStyles": ["./preview.css"]
    },
    "scripts": {
       "test": "vscode-test",
-      "package": "vsce package --out dist/ --allow-missing-repository --baseContentUrl https://localhost/ --baseImagesUrl https://localhost/"
+      "package": "vsce package --out dist/"
    },
    "devDependencies": {
       "@types/mocha": "^10.0.10",
