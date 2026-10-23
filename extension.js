@@ -3,15 +3,17 @@ const fs = require('fs');
 const path = require('path');
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp']);
-const INDEXED_EXT = new Set([...IMAGE_EXT, '.pdf']);
+const INDEXED_EXT = new Set([...IMAGE_EXT, '.pdf', '.md']);
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.obsidian', '.vscode']);
 const REINDEX_MIN_MS = 2000;
 
-// root folder -> { map: Map<lowercase filename, full path>, builtAt: number }
+// root folder -> { map: Map<lowercase filename, full path>,
+//                  notes: Map<lowercase note filename, full paths[]>, builtAt: number }
 const indexes = new Map();
 
 function buildIndex(root) {
    const map = new Map();
+   const notes = new Map();
    const walk = (dir) => {
       let entries;
       try {
@@ -26,13 +28,27 @@ function buildIndex(root) {
          } else if (INDEXED_EXT.has(path.extname(ent.name).toLowerCase())) {
             const key = ent.name.toLowerCase();
             if (!map.has(key)) map.set(key, full);
+            if (key.endsWith('.md')) {
+               if (!notes.has(key)) notes.set(key, []);
+               notes.get(key).push(full);
+            }
          }
       }
    };
    walk(root);
-   const idx = { map, builtAt: Date.now() };
+   const idx = { map, notes, builtAt: Date.now() };
    indexes.set(root, idx);
    return idx;
+}
+
+// Every note with this filename (several folders can hold an index.md, for example).
+function findNotes(root, key) {
+   const idx = indexes.get(root) || buildIndex(root);
+   let hit = idx.notes.get(key);
+   if (!hit && Date.now() - idx.builtAt > REINDEX_MIN_MS) {
+      hit = buildIndex(root).notes.get(key);
+   }
+   return hit || [];
 }
 
 function findImage(root, name) {
@@ -255,6 +271,82 @@ function imageLinkRule(state) {
    });
 }
 
+// Heading text -> the anchor id the preview gives that heading.
+function slugify(heading) {
+   return heading
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^\p{L}\p{N}_-]/gu, '');
+}
+
+// Picks the note a wikilink means: filename match (case-insensitive), narrowed by any folder
+// part of the link, shortest path first like Obsidian does.
+function resolveNote(root, name) {
+   const parts = name.replace(/\\/g, '/').replace(/\.md$/i, '').split('/').filter(Boolean);
+   if (!parts.length) return null;
+   let candidates = findNotes(root, parts[parts.length - 1].toLowerCase() + '.md');
+   if (parts.length > 1) {
+      const tail = '/' + parts.join('/').toLowerCase() + '.md';
+      candidates = candidates.filter((c) => c.replace(/\\/g, '/').toLowerCase().endsWith(tail));
+   }
+   return candidates.slice().sort((a, b) => a.length - b.length)[0] || null;
+}
+
+// [[Note]]  [[Note|alias]]  [[Note#Heading]]  [[folder/Note]]  [[#Heading]]  [[file.pdf]]
+// Resolved by filename anywhere in the workspace. A link to a note that does not exist is
+// shown as dimmed text instead of a dead link. ![[...]] (an embed) is left alone.
+function wikilinkRule(state, silent) {
+   const src = state.src;
+   const start = state.pos;
+   if (!src.startsWith('[[', start)) return false;
+   if (start > 0 && src.charCodeAt(start - 1) === 0x21) return false;
+   const end = src.indexOf(']]', start + 2);
+   if (end < 0 || end >= state.posMax) return false;
+
+   const inner = src.slice(start + 2, end).replace(/\\\|/g, '|');
+   if (!inner.trim() || inner.includes('\n')) return false;
+   if (silent) {
+      state.pos = end + 2;
+      return true;
+   }
+
+   const bar = inner.indexOf('|');
+   const target = (bar < 0 ? inner : inner.slice(0, bar)).trim();
+   const alias = bar < 0 ? '' : inner.slice(bar + 1).trim();
+   const hash = target.indexOf('#');
+   const name = (hash < 0 ? target : target.slice(0, hash)).trim();
+   const frag = hash < 0 ? '' : target.slice(hash + 1).trim();
+   const heading = frag.startsWith('^') ? '' : frag; // block references have no anchor
+   if (!name && !heading) return false;
+
+   const ctx = rootFor(state.env);
+   if (!ctx) return false;
+
+   const base = name.replace(/\\/g, '/').split('/').pop();
+   const ext = path.extname(base).toLowerCase();
+   let file = null;
+   if (name) {
+      file = ext && ext !== '.md' && INDEXED_EXT.has(ext) ? findImage(ctx.root, base) : resolveNote(ctx.root, name);
+   }
+   const display = alias || (name && heading ? name + ' > ' + heading : name || heading);
+   const anchor = heading ? '#' + slugify(heading) : '';
+
+   if (name && !file) {
+      const span = state.push('html_inline', '', 0);
+      span.content =
+         '<span class="wikilink-unresolved" title="Note not found">' + state.md.utils.escapeHtml(display) + '</span>';
+   } else {
+      const open = state.push('link_open', 'a', 1);
+      open.attrs = [['href', (file ? toSrc(ctx.docDir, file) : '') + anchor]];
+      const text = state.push('text', '', 0);
+      text.content = display;
+      state.push('link_close', 'a', -1);
+   }
+   state.pos = end + 2;
+   return true;
+}
+
 function activate(context) {
    const track = (editor) => {
       if (editor && editor.document.languageId === 'markdown' && editor.document.uri.scheme === 'file') {
@@ -266,6 +358,7 @@ function activate(context) {
    return {
       extendMarkdownIt(md) {
          md.inline.ruler.before('image', 'obsidian_embed', embedRule);
+         md.inline.ruler.before('link', 'obsidian_wikilink', wikilinkRule);
          md.inline.ruler.before('emphasis', 'obsidian_highlight', highlightRule);
          md.core.ruler.after('inline', 'obsidian_callouts', calloutRule);
          md.core.ruler.before('normalize', 'obsidian_image_links', imageLinkRule);

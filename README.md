@@ -13,6 +13,7 @@ A small VS Code extension that makes the built-in Markdown preview understand a 
 | `==highlight==` | Highlighted text |
 | `> [!warning] Title` | Coloured callout box (`note`, `info`, `tip`, `success`, `warning`, `danger`, `error`, and others) |
 | `![[file.pdf]]`, `![[file.pdf#page=3&height=500]]` | A link `📄 file.pdf (page 3)` to the PDF, found by filename (link card, not an inline viewer) |
+| `[[Note]]`, `[[Note\|alias]]`, `[[Note#Heading]]`, `[[folder/Note]]`, `[[#Heading]]` | A clickable link to the note, found by filename anywhere in the workspace (case-insensitive, shortest path wins if several notes share a name). Links to a missing note show as dimmed text. `[[file.pdf]]` links to the file |
 | `> [!video] Title` + URL on the next line (also `[!video]-`) | A card with the title and the URL as a link (link card, not an inline player) |
 
 Images and PDFs that cannot be found are left as literal text, so a typo is easy to spot.
@@ -23,7 +24,8 @@ The preview webview has no PDF viewer and its content security policy blocks ifr
 
 ## What it does not render
 
-- Note embeds (`![[Some Note]]`)
+- Note embeds (`![[Some Note]]`) are left as written; only `[[Some Note]]` links are supported
+- Block references (`[[Note#^id]]`) link to the note but not to the block
 - Mermaid diagrams (use a separate Mermaid extension, e.g. `bierner.markdown-mermaid`)
 
 ## How image lookup works
@@ -78,7 +80,8 @@ npm test
 ## Files
 
 - `extension.js`: the markdown-it plugin (image embeds, image links, PDF and video link cards, highlights, callouts)
-- `preview.css`: styles for highlights and callouts
+- `preview.css`: styles for highlights, callouts and unresolved note links
+- `CHANGELOG.md`: release notes
 - `test/suite/`: Mocha tests; `test/workspace/`: fixture workspace they run against
 - `.vscode-test.mjs`, `.vscode/launch.json`, `obsidian-preview.code-workspace`: test and debug setup
 - `package.json`: extension manifest (`markdown.markdownItPlugins`, `markdown.previewStyles`)

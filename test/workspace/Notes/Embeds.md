@@ -27,3 +27,27 @@ Missing PDF: ![[no-such-file.pdf]]
 > Body text.
 
 A ==highlighted== word.
+
+## Local Heading
+
+Note link: [[Target Note]]
+
+Note link with alias: [[Target Note|the target]]
+
+Note link to a heading: [[Target Note#Some Heading]]
+
+Note link by folder and name: [[Reference/Deep Note]]
+
+Note link, different case: [[target note]]
+
+Note link with the extension: [[Target Note.md]]
+
+Link to a heading in this note: [[#Local Heading]]
+
+Link to a PDF: [[sample-guide.pdf]]
+
+Link to a missing note: [[No Such Note]]
+
+A note embed is not supported and stays as written: ![[Target Note]]
+
+In code, not a link: `[[Not A Link]]`
