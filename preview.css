@@ -1,5 +1,10 @@
 blockquote.callout-video { border-left-color: #8b5cf6; background: rgba(139,92,246,.12); }
 blockquote.callout .video-link { margin: 4px 0 8px; word-break: break-all; }
+.note-embed { border-left: 3px solid #888; background: rgba(128,128,128,.08); padding: 2px 14px 6px; margin: 12px 0; border-radius: 4px; }
+.note-embed-title { font-size: .85em; opacity: .75; margin: 4px 0; }
+.note-embed-body > :first-child { margin-top: 4px; }
+.note-embed-body > :last-child { margin-bottom: 2px; }
+.note-embed-notice { opacity: .65; font-style: italic; }
 .wikilink-unresolved { opacity: .65; border-bottom: 1px dashed currentColor; cursor: help; }
 mark { background: #ffe066; color: #000; padding: 0 2px; border-radius: 2px; }
 blockquote.callout { border-left: 4px solid #888; background: rgba(128,128,128,.12); padding: 4px 14px; margin: 12px 0; border-radius: 4px; }

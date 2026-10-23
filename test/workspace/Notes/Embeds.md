@@ -48,6 +48,42 @@ Link to a PDF: [[sample-guide.pdf]]
 
 Link to a missing note: [[No Such Note]]
 
-A note embed is not supported and stays as written: ![[Target Note]]
+An embed in the middle of a sentence stays as written: ![[Target Note]]
+
+Link to a block: [[Embed Source#^para-id]]
 
 In code, not a link: `[[Not A Link]]`
+
+## Note embeds
+
+Whole note:
+
+![[Target Note]]
+
+A section, with its sub-section:
+
+![[Embed Source#First Section]]
+
+A paragraph block:
+
+![[Embed Source#^para-id]]
+
+A list item block, with its child:
+
+![[Embed Source#^item-id]]
+
+A block whose id is on the next line:
+
+![[Embed Source#^alone-id]]
+
+A missing section:
+
+![[Embed Source#No Such Section]]
+
+Two notes that embed each other:
+
+![[Loop A]]
+
+A missing note stays as written:
+
+![[No Such Embed]]

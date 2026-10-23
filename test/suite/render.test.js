@@ -68,6 +68,67 @@ suite('Obsidian Preview', () => {
       assert.ok(html.includes('<code>[[Not A Link]]</code>'));
    });
 
+   // An embed box runs from its title link to the closing tags; look inside one box at a time.
+   const embedByTitle = (title) => {
+      const start = html.indexOf('>' + title + '</a></div>');
+      assert.ok(start >= 0, 'no embed titled ' + title);
+      return html.slice(start, html.indexOf('</div></div>', start));
+   };
+
+   test('![[Note]] on its own line shows the note without its front matter', () => {
+      assert.ok(embedByTitle('Target Note').includes('Fixture note that the wikilinks'));
+      assert.ok(!html.includes('Front Matter Title'));
+   });
+
+   test('![[Note#Heading]] shows that section and its sub-section only', () => {
+      const box = embedByTitle('Embed Source &gt; First Section');
+      assert.ok(box.includes('Section text one.'));
+      assert.ok(box.includes('Sub section text.'));
+      assert.ok(!html.includes('Section text two.'));
+      assert.ok(!html.includes('Intro paragraph of the source note.'));
+   });
+
+   test('images inside an embedded section are resolved', () => {
+      assert.match(embedByTitle('Embed Source &gt; First Section'), /<img[^>]*test-image\.png[^>]*width="50"/);
+   });
+
+   test('![[Note#^id]] shows the paragraph without its id', () => {
+      const box = embedByTitle('Embed Source &gt; ^para-id');
+      assert.ok(box.includes('A tagged paragraph.'));
+      assert.ok(!box.includes('^para-id</p>') && !/<p>[^<]*\^para-id/.test(box));
+   });
+
+   test('![[Note#^id]] on a list item shows the item and its child, not its siblings', () => {
+      const box = embedByTitle('Embed Source &gt; ^item-id');
+      assert.ok(box.includes('Second item'));
+      assert.ok(box.includes('child under second'));
+      assert.ok(!html.includes('First item'));
+   });
+
+   test('![[Note#^id]] with the id on the next line shows the paragraph above', () => {
+      const box = embedByTitle('Embed Source &gt; ^alone-id');
+      assert.ok(box.includes('Another paragraph with the id on the next line.'));
+      assert.ok(!/<p>[^<]*\^alone-id/.test(box));
+   });
+
+   test('embed of a missing section shows a notice', () => {
+      assert.match(html, /note-embed-notice">Section not found\./);
+   });
+
+   test('notes that embed each other stop at the loop', () => {
+      assert.match(html, /note-embed note-embed-loop/);
+      assert.ok(html.includes('Text in loop A.'));
+      assert.ok(html.includes('Text in loop B.'));
+   });
+
+   test('embed of a missing note stays as written', () => {
+      assert.ok(html.includes('![[No Such Embed]]'));
+   });
+
+   test('[[Note#^id]] link shows the block text as a tooltip', () => {
+      assert.match(html, /<a href="Embed%20Source\.md"[^>]*title="A tagged paragraph\."/);
+   });
+
    test('![[image]] resolves by filename from another folder', () => {
       assert.match(html, /<img[^>]*src="[^"]*Static(%20| )Assets\/test-image\.png"/);
    });

@@ -14,6 +14,7 @@ A small VS Code extension that makes the built-in Markdown preview understand a 
 | `> [!warning] Title` | Coloured callout box (`note`, `info`, `tip`, `success`, `warning`, `danger`, `error`, and others) |
 | `![[file.pdf]]`, `![[file.pdf#page=3&height=500]]` | A link `📄 file.pdf (page 3)` to the PDF, found by filename (link card, not an inline viewer) |
 | `[[Note]]`, `[[Note\|alias]]`, `[[Note#Heading]]`, `[[folder/Note]]`, `[[#Heading]]` | A clickable link to the note, found by filename anywhere in the workspace (case-insensitive, shortest path wins if several notes share a name). Links to a missing note show as dimmed text. `[[file.pdf]]` links to the file |
+| `![[Note]]`, `![[Note#Heading]]`, `![[Note#^id]]` on a line of their own | The note, the section under that heading, or the tagged paragraph / list item, shown in a bordered box with a link back to the note. Front matter is not shown; loops are stopped with a notice |
 | `> [!video] Title` + URL on the next line (also `[!video]-`) | A card with the title and the URL as a link (link card, not an inline player) |
 
 Images and PDFs that cannot be found are left as literal text, so a typo is easy to spot.
@@ -24,8 +25,10 @@ The preview webview has no PDF viewer and its content security policy blocks ifr
 
 ## What it does not render
 
-- Note embeds (`![[Some Note]]`) are left as written; only `[[Some Note]]` links are supported
-- Block references (`[[Note#^id]]`) link to the note but not to the block
+- An embed in the middle of a sentence (`text ![[Some Note]] text`) is left as written; only an embed alone on its line becomes a box
+- A `[[Note#^id]]` link goes to the note, not to the block (the preview cannot scroll to a block), but it shows the block's text as a tooltip
+- Relative Markdown links in an embedded note are resolved from the note being previewed
+- An embedded note does not refresh until the page that embeds it is reopened or edited
 - Mermaid diagrams (use a separate Mermaid extension, e.g. `bierner.markdown-mermaid`)
 
 ## How image lookup works

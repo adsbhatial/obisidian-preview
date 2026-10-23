@@ -4,6 +4,25 @@ All notable changes to this extension are documented here. The format follows [K
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
+### Added
+
+- Note embeds: a `![[Note]]` on its own line shows the note's content inside a bordered box with a title link back to the note. The note's front matter is not shown. Images, wikilinks, callouts and PDF/video cards inside the embedded text work as they do on the page.
+- Section embeds: `![[Note#Heading]]` shows that heading and everything under it, up to the next heading of the same or a higher level.
+- Block embeds: `![[Note#^id]]` shows the paragraph or list item tagged with `^id`, including a list item's children. The `^id` itself is not shown, and an id on its own line below a paragraph is supported.
+- A `[[Note#^id]]` link now shows the block's text as a tooltip.
+- A missing section or block shows a "not found" notice inside the embed box.
+- Notes that embed each other stop at the loop with a notice, and embeds nest at most four levels deep.
+- Tests and fixture notes for embeds, blocks and the loop guard.
+
+### Limits
+
+- Only an embed alone on its line becomes a box. An embed in the middle of a sentence, or of a note that does not exist, is left as written.
+- Relative Markdown links in an embedded note (such as `[text](../other.md)`) are resolved from the note being previewed, not from the embedded note. Wikilinks and image links are found by filename, so they are not affected.
+- An embedded note does not refresh when you edit it; reopen or edit the page that embeds it.
+- `[[Note#^id]]` links to the note and cannot jump to the block, because the preview has no way to scroll to one.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

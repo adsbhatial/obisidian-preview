@@ -123,10 +123,11 @@ function rootFor(env) {
       return {
          root: folder ? folder.uri.fsPath : path.dirname(docPath),
          docDir: path.dirname(docPath),
+         docPath,
       };
    }
    logLine('could not determine the note being previewed; resolving images from the workspace root');
-   return folders[0] ? { root: folders[0].uri.fsPath, docDir: folders[0].uri.fsPath } : null;
+   return folders[0] ? { root: folders[0].uri.fsPath, docDir: folders[0].uri.fsPath, docPath: null } : null;
 }
 
 // Relative to the note, so the built-in preview turns it into a webview URI itself.
@@ -339,12 +340,169 @@ function wikilinkRule(state, silent) {
    } else {
       const open = state.push('link_open', 'a', 1);
       open.attrs = [['href', (file ? toSrc(ctx.docDir, file) : '') + anchor]];
+      if (file && frag.startsWith('^') && path.extname(file).toLowerCase() === '.md') {
+         // The preview can't jump to a block, so show its text as a tooltip instead.
+         const block = blockOf(readNoteLines(file), frag.slice(1));
+         if (block) open.attrs.push(['title', block.join(' ').replace(/\s+/g, ' ').trim().slice(0, 240)]);
+      }
       const text = state.push('text', '', 0);
       text.content = display;
       state.push('link_close', 'a', -1);
    }
    state.pos = end + 2;
    return true;
+}
+
+// ---- Note embeds: ![[Note]]  ![[Note#Heading]]  ![[Note#^block-id]] ----
+
+const MAX_EMBED_DEPTH = 4;
+const NOTE_EMBED_LINE = /^!\[\[([^\]]+)\]\]$/;
+const HEADING_LINE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+
+function escapeRegExp(text) {
+   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function readNoteLines(file) {
+   try {
+      const text = fs.readFileSync(file, 'utf8').replace(/^﻿/, '');
+      return text.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, '').split(/\r?\n/);
+   } catch (e) {
+      return [];
+   }
+}
+
+function plainHeading(text) {
+   return text.replace(/[*_`]/g, '').trim().toLowerCase();
+}
+
+// Lines of the section that starts at this heading, up to the next heading of the same or
+// a higher level. Headings inside fenced code blocks are ignored.
+function sectionOf(lines, heading) {
+   const want = plainHeading(heading.split('#').pop());
+   let fence = null;
+   let start = -1;
+   let level = 0;
+   for (let i = 0; i < lines.length; i++) {
+      const marker = /^\s*(```|~~~)/.exec(lines[i]);
+      if (marker) {
+         fence = fence ? (fence === marker[1] ? null : fence) : marker[1];
+         continue;
+      }
+      if (fence) continue;
+      const m = HEADING_LINE.exec(lines[i]);
+      if (!m) continue;
+      if (start < 0) {
+         if (plainHeading(m[2]) === want) {
+            start = i;
+            level = m[1].length;
+         }
+      } else if (m[1].length <= level) {
+         return lines.slice(start, i);
+      }
+   }
+   return start < 0 ? null : lines.slice(start);
+}
+
+// The block that carries "^id" at the end of its last line (or alone on the line after it).
+// A list item brings its indented children along; anything else is the paragraph above.
+function blockOf(lines, id) {
+   const tag = new RegExp('(^|\\s)\\^' + escapeRegExp(id) + '\\s*$');
+   const idLine = lines.findIndex((l) => tag.test(l));
+   if (idLine < 0) return null;
+   const alone = lines[idLine].trim() === '^' + id;
+   const last = alone ? idLine - 1 : idLine;
+   if (last < 0 || !lines[last].trim()) return null;
+
+   const indent = (l) => /^\s*/.exec(l)[0].length;
+   const isItem = /^\s*([-*+]|\d+[.)])\s/.test(lines[last]);
+   let start = last;
+   if (!isItem) {
+      while (start > 0 && lines[start - 1].trim() !== '') start--;
+   }
+   const out = lines.slice(start, last + 1);
+   if (isItem && !alone) {
+      for (let j = last + 1; j < lines.length; j++) {
+         if (!lines[j].trim() || indent(lines[j]) <= indent(lines[last])) break;
+         out.push(lines[j]);
+      }
+   }
+   if (!alone) out[idLine - start] = out[idLine - start].replace(tag, '');
+   return out;
+}
+
+// The text an embed shows, or null when the section / block does not exist.
+function embedSelection(file, frag) {
+   const lines = readNoteLines(file);
+   if (!frag) return lines;
+   if (frag.startsWith('^')) return blockOf(lines, frag.slice(1));
+   return sectionOf(lines, frag);
+}
+
+function embedBox(esc, href, title, body) {
+   return (
+      '<div class="note-embed"><div class="note-embed-title"><a href="' + esc(href) + '">' + esc(title) + '</a></div>' +
+      '<div class="note-embed-body">' + body + '</div></div>\n'
+   );
+}
+
+// Renders the note through the same markdown-it instance, so images, links, callouts and
+// nested embeds inside it work. Paths come out relative to the note being previewed.
+function renderEmbed(md, env, ctx, file, frag) {
+   const esc = md.utils.escapeHtml;
+   const stack = env.obsidianEmbedStack || (ctx.docPath ? [ctx.docPath] : []);
+   const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+   const title = path.basename(file, '.md') + (frag ? ' > ' + frag : '');
+   const anchor = frag && !frag.startsWith('^') ? '#' + slugify(frag.split('#').pop()) : '';
+   const href = toSrc(ctx.docDir, file) + anchor;
+   const notice = (text) => embedBox(esc, href, title, '<p class="note-embed-notice">' + esc(text) + '</p>');
+
+   if (stack.some((s) => same(s, file)) || stack.length > MAX_EMBED_DEPTH) {
+      return notice('Embed loop: this note is already being shown above.').replace('note-embed"', 'note-embed note-embed-loop"');
+   }
+   const lines = embedSelection(file, frag);
+   if (!lines) return notice(frag.startsWith('^') ? 'Block not found.' : 'Section not found.');
+
+   const html = md.render(lines.join('\n'), Object.assign({}, env, { obsidianEmbedStack: stack.concat(file) }));
+   // The preview's scroll-sync markers refer to line numbers of the embedded text, not this page.
+   const clean = html.replace(/\sdata-line="\d+"/g, '').replace(/\s*\bcode-line\b/g, '').replace(/ class=""/g, '');
+   return embedBox(esc, href, title, clean);
+}
+
+// A paragraph made only of ![[Note]] lines becomes the note's content. An embed in the
+// middle of a sentence, or of a note that does not exist, is left as written.
+function noteEmbedRule(state) {
+   const tokens = state.tokens;
+   let ctx = null;
+   for (let i = 0; i + 2 < tokens.length; i++) {
+      if (tokens[i].type !== 'paragraph_open' || tokens[i + 1].type !== 'inline' || tokens[i + 2].type !== 'paragraph_close') {
+         continue;
+      }
+      const lines = tokens[i + 1].content.split('\n').map((l) => l.trim());
+      if (!lines.every((l) => NOTE_EMBED_LINE.test(l))) continue;
+
+      ctx = ctx || rootFor(state.env);
+      if (!ctx) return;
+      let html = '';
+      for (const line of lines) {
+         const target = NOTE_EMBED_LINE.exec(line)[1].split('|')[0].trim();
+         const hash = target.indexOf('#');
+         const name = (hash < 0 ? target : target.slice(0, hash)).trim();
+         const frag = hash < 0 ? '' : target.slice(hash + 1).trim();
+         const ext = path.extname(name).toLowerCase();
+         const file = name && (!ext || ext === '.md') ? resolveNote(ctx.root, name) : null;
+         if (!file) {
+            html = null;
+            break;
+         }
+         html += renderEmbed(state.md, state.env, ctx, file, frag);
+      }
+      if (html === null) continue;
+
+      const token = new state.Token('html_block', '', 0);
+      token.content = html;
+      tokens.splice(i, 3, token);
+   }
 }
 
 function activate(context) {
@@ -360,6 +518,7 @@ function activate(context) {
          md.inline.ruler.before('image', 'obsidian_embed', embedRule);
          md.inline.ruler.before('link', 'obsidian_wikilink', wikilinkRule);
          md.inline.ruler.before('emphasis', 'obsidian_highlight', highlightRule);
+         md.core.ruler.after('block', 'obsidian_note_embeds', noteEmbedRule);
          md.core.ruler.after('inline', 'obsidian_callouts', calloutRule);
          md.core.ruler.before('normalize', 'obsidian_image_links', imageLinkRule);
          return md;

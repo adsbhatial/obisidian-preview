@@ -1,3 +1,7 @@
+---
+title: Front Matter Title
+---
+
 ## Target note
 
 Fixture note that the wikilinks in `Embeds.md` point to.
